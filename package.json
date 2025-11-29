@@ -1,0 +1,30 @@
+{
+  "name": "printguard",
+  "version": "1.0.0",
+  "description": "Monitor 3D printer via WebSocket and send Slack notifications for print events",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["3d-printer", "ender", "slack", "monitoring"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@slack/web-api": "^7.7.0",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.1",
+    "@types/ws": "^8.5.13",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^9.15.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

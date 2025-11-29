@@ -1,0 +1,9 @@
+services:
+  print-guard:
+    image: ghcr.io/bmoers/print-guard:latest
+    container_name: print-guard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
