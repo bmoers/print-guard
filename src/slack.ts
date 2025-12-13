@@ -81,6 +81,28 @@ export async function sendPrinterOnline(): Promise<boolean> {
   }
 }
 
+export async function sendJobSubmitted(filename: string): Promise<boolean> {
+  if (!config.notifications.jobSubmitted) {
+    log('Job submitted notification disabled');
+    return true;
+  }
+  const name = extractFilename(filename);
+  const message = `:hourglass_flowing_sand: *Print job submitted*\n\n:page_facing_up: *File:* \`${name}\`\n:fire: Heating up...`;
+
+  try {
+    await client.chat.postMessage({
+      channel: config.slack.channelId,
+      text: message,
+      mrkdwn: true,
+    });
+    log('Job submitted notification sent');
+    return true;
+  } catch (error) {
+    log(`Failed to send job submitted notification: ${error}`, 'error');
+    return false;
+  }
+}
+
 export async function sendPrintStarted(
   filename: string,
   image?: Buffer | null
@@ -163,6 +185,53 @@ export async function sendJobComplete(
     return true;
   } catch (error) {
     log(`Failed to send Slack notification: ${error}`, 'error');
+    return false;
+  }
+}
+
+export async function sendJobCancelled(
+  info: JobCompleteInfo,
+  image?: Buffer | null
+): Promise<boolean> {
+  if (!config.notifications.jobCancelled) {
+    log('Job cancelled notification disabled');
+    return true;
+  }
+  const filename = extractFilename(info.filename);
+
+  let message = `:x: *Print Cancelled*\n\n:page_facing_up: *File:* \`${filename}\``;
+
+  if (info.durationSeconds) {
+    message += `\n:stopwatch: *Duration:* ${formatDuration(info.durationSeconds)}`;
+  }
+
+  if (info.materialUsedMm) {
+    const meters = (info.materialUsedMm / 1000).toFixed(2);
+    message += `\n:thread: *Material:* ${meters}m`;
+  }
+
+  try {
+    if (image) {
+      const success = await uploadImageWithMessage(
+        message,
+        image,
+        `print-cancelled-${Date.now()}.jpg`
+      );
+      if (success) {
+        log('Job cancelled notification with image sent');
+        return true;
+      }
+    }
+
+    await client.chat.postMessage({
+      channel: config.slack.channelId,
+      text: message,
+      mrkdwn: true,
+    });
+    log('Job cancelled notification sent');
+    return true;
+  } catch (error) {
+    log(`Failed to send job cancelled notification: ${error}`, 'error');
     return false;
   }
 }

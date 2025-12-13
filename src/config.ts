@@ -39,12 +39,15 @@ export const config = {
   notifications: {
     startup: boolEnv('NOTIFY_STARTUP', true),
     printerOnline: boolEnv('NOTIFY_PRINTER_ONLINE', true),
+    jobSubmitted: boolEnv('NOTIFY_JOB_SUBMITTED', true),
     printStarted: boolEnv('NOTIFY_PRINT_STARTED', true),
     jobComplete: boolEnv('NOTIFY_JOB_COMPLETE', true),
+    jobCancelled: boolEnv('NOTIFY_JOB_CANCELLED', true),
   },
   images: {
     onPrintStarted: boolEnv('IMAGE_ON_PRINT_STARTED', true),
     onJobComplete: boolEnv('IMAGE_ON_JOB_COMPLETE', true),
+    onJobCancelled: boolEnv('IMAGE_ON_JOB_CANCELLED', true),
   },
 } as const;
 

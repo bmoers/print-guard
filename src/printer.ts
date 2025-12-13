@@ -19,17 +19,24 @@ export interface PrinterStatus {
 export interface PrinterEvents {
   connected: () => void;
   disconnected: () => void;
-  status: (status: PrinterStatus) => void;
+  jobSubmitted: (info: { filename: string }) => void;
+  printStarted: (info: { filename: string }) => void;
   jobComplete: (info: { filename: string; durationSeconds: number; materialUsedMm: number }) => void;
-  heartbeat: () => void;
+  jobCancelled: (info: { filename: string; durationSeconds: number; materialUsedMm: number }) => void;
+}
+
+enum JobState {
+  IDLE = 'IDLE',
+  SUBMITTED = 'SUBMITTED',
+  PRINTING = 'PRINTING',
 }
 
 export class PrinterClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private currentStatus: PrinterStatus = {};
-  private lastCompletedJobTime: number | null = null;
   private wasConnected = false;
-  private seenPrintInProgress = false;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private jobState: JobState = JobState.IDLE;
 
   constructor() {
     super();
@@ -49,14 +56,17 @@ export class PrinterClient extends EventEmitter {
       this.ws.on('open', () => {
         log('Connected to printer');
         this.wasConnected = true;
+        this.startHeartbeat();
         this.emit('connected');
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
+        log(`Received message: ${data.toString()}`, 'debug');
         this.handleMessage(data.toString());
       });
 
       this.ws.on('close', () => {
+        this.stopHeartbeat();
         if (this.wasConnected) {
           log('Disconnected from printer');
           this.wasConnected = false;
@@ -74,9 +84,31 @@ export class PrinterClient extends EventEmitter {
   }
 
   disconnect(): void {
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
+    }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        const msg = JSON.stringify({
+          ModeCode: 'heart_beat',
+          msg: new Date().toISOString(),
+        });
+        this.ws.send(msg);
+        log('Heartbeat sent', 'debug');
+      }
+    }, 6000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
   }
 
@@ -89,25 +121,20 @@ export class PrinterClient extends EventEmitter {
   }
 
   private handleMessage(data: string): void {
+    if (data === 'ok') {
+      return;
+    }
+
     try {
       const message = JSON.parse(data);
-
-      if (message.ModeCode === 'heart_beat') {
-        this.emit('heartbeat');
-        log('Heartbeat received', 'debug');
-        return;
-      }
-
       this.updateStatus(message);
-
-      if (this.isJobComplete(message)) {
-        this.handleJobComplete(message);
-      }
+      this.checkJobEvents();
     } catch (error) {
       log(`Failed to parse message: ${data}`, 'debug');
     }
   }
 
+  // Updates currentStatus from WebSocket message - NO event detection here
   private updateStatus(message: Record<string, unknown>): void {
     if (message.nozzleTemp !== undefined) {
       this.currentStatus.nozzleTemp = parseFloat(message.nozzleTemp as string);
@@ -116,18 +143,8 @@ export class PrinterClient extends EventEmitter {
       this.currentStatus.bedTemp = parseFloat(message.bedTemp0 as string);
     }
     if (message.printProgress !== undefined) {
-      const progress = message.printProgress as number;
-      this.currentStatus.printProgress = progress;
-
-      if (progress > 0 && progress < 100) {
-        if (!this.seenPrintInProgress) {
-          log(`Print in progress detected (${progress}%)`);
-          this.seenPrintInProgress = true;
-        }
-      }
+      this.currentStatus.printProgress = message.printProgress as number;
     }
-
-    // Check for current print filename in various possible fields
     if (message.filename !== undefined) {
       this.currentStatus.filename = message.filename as string;
     }
@@ -158,50 +175,92 @@ export class PrinterClient extends EventEmitter {
     if (message.usedMaterialLength !== undefined) {
       this.currentStatus.usedMaterialLength = message.usedMaterialLength as number;
     }
-
     if (message.historyList && Array.isArray(message.historyList) && message.historyList.length > 0) {
       const latestJob = message.historyList[0] as Record<string, unknown>;
       if (latestJob.filename) {
         this.currentStatus.filename = latestJob.filename as string;
       }
     }
-
-    this.emit('status', this.currentStatus);
   }
 
-  private isJobComplete(message: Record<string, unknown>): boolean {
-    return (
-      message.printProgress === 100 &&
-      message.printLeftTime === 0 &&
-      message.printJobTime !== undefined
-    );
-  }
+  // Checks for job state transitions and emits events
+  private checkJobEvents(): void {
+    const { deviceState, state, printProgress } = this.currentStatus;
 
-  private handleJobComplete(message: Record<string, unknown>): void {
-    const jobTime = message.printJobTime as number;
-
-    if (!this.seenPrintInProgress) {
-      log('Job complete signal ignored (no print was in progress this session)', 'debug');
+    // IDLE → SUBMITTED: deviceState=1 && state=1
+    if (this.jobState === JobState.IDLE) {
+      if (deviceState === 1 && state === 1) {
+        this.jobState = JobState.SUBMITTED;
+        this.emitJobSubmitted();
+      }
       return;
     }
 
-    if (this.lastCompletedJobTime === jobTime) {
-      log('Duplicate job complete event ignored', 'debug');
+    // SUBMITTED → PRINTING: printProgress > 0
+    if (this.jobState === JobState.SUBMITTED) {
+      if (printProgress !== undefined && printProgress > 0 && printProgress < 50) {
+        this.jobState = JobState.PRINTING;
+        this.emitPrintStarted();
+      }
+      // SUBMITTED → CANCELLED: deviceState=0
+      if (deviceState === 0) {
+        this.jobState = JobState.IDLE;
+        this.emitJobCancelled();
+      }
       return;
     }
 
-    this.lastCompletedJobTime = jobTime;
-    this.seenPrintInProgress = false;
+    // PRINTING → COMPLETE: printProgress=100
+    if (this.jobState === JobState.PRINTING) {
+      if (printProgress === 100) {
+        this.jobState = JobState.IDLE;
+        this.resetJobStatus();
+        this.emitJobComplete();
+        return;
+      }
+      // PRINTING → CANCELLED: deviceState=0
+      if (deviceState === 0) {
+        this.jobState = JobState.IDLE;
+        this.resetJobStatus();
+        this.emitJobCancelled();
+      }
+    }
+  }
 
+  // Reset cached status values to prevent false re-triggers
+  private resetJobStatus(): void {
+    this.currentStatus.deviceState = undefined;
+    this.currentStatus.state = undefined;
+    this.currentStatus.printProgress = undefined;
+  }
+
+  private emitJobSubmitted(): void {
     const filename = this.currentStatus.filename || 'Unknown file';
+    log(`Job submitted: ${filename}`);
+    this.emit('jobSubmitted', { filename });
+  }
+
+  private emitPrintStarted(): void {
+    const filename = this.currentStatus.filename || 'Unknown file';
+    log(`Print started: ${filename}`);
+    this.emit('printStarted', { filename });
+  }
+
+  private emitJobComplete(): void {
+    const filename = this.currentStatus.filename || 'Unknown file';
+    const durationSeconds = this.currentStatus.printJobTime || 0;
     const materialUsedMm = this.currentStatus.usedMaterialLength || 0;
 
-    log(`Job complete: ${filename} (${jobTime}s)`);
+    log(`Job complete: ${filename} (${durationSeconds}s)`);
+    this.emit('jobComplete', { filename, durationSeconds, materialUsedMm });
+  }
 
-    this.emit('jobComplete', {
-      filename,
-      durationSeconds: jobTime,
-      materialUsedMm,
-    });
+  private emitJobCancelled(): void {
+    const filename = this.currentStatus.filename || 'Unknown file';
+    const durationSeconds = this.currentStatus.printJobTime || 0;
+    const materialUsedMm = this.currentStatus.usedMaterialLength || 0;
+
+    log(`Job cancelled: ${filename} (${durationSeconds}s)`);
+    this.emit('jobCancelled', { filename, durationSeconds, materialUsedMm });
   }
 }

@@ -11,11 +11,14 @@ A Node.js/TypeScript application that monitors a Creality Ender V3 3D printer vi
 - Slack notifications for:
   - Monitor startup
   - Printer online/offline status
+  - Print job submitted (heating phase)
   - Print job started (with optional camera snapshot)
   - Print job completed (with optional camera snapshot)
+  - Print job cancelled (with optional camera snapshot)
 - Configurable notification toggles
 - Automatic reconnection when printer goes offline
 - Camera snapshot support with configurable delay
+- Heartbeat mechanism for reliable WebSocket connection
 - Docker support with multi-arch images (arm64/amd64)
 
 ## Requirements
@@ -96,8 +99,10 @@ Control which notifications are sent (all default to `true`):
 |----------|-------------|
 | `NOTIFY_STARTUP` | Send message when monitor starts |
 | `NOTIFY_PRINTER_ONLINE` | Send message when printer connects |
+| `NOTIFY_JOB_SUBMITTED` | Send message when print job is received (heating) |
 | `NOTIFY_PRINT_STARTED` | Send message when print job begins |
 | `NOTIFY_JOB_COMPLETE` | Send message when print job finishes |
+| `NOTIFY_JOB_CANCELLED` | Send message when print job is cancelled |
 
 ### Image Toggles
 
@@ -107,6 +112,7 @@ Control camera snapshots in notifications (requires `PRINTER_SNAPSHOT_URL`):
 |----------|---------|-------------|
 | `IMAGE_ON_PRINT_STARTED` | `true` | Attach snapshot when print starts |
 | `IMAGE_ON_JOB_COMPLETE` | `true` | Attach snapshot when print completes |
+| `IMAGE_ON_JOB_CANCELLED` | `true` | Attach snapshot when print is cancelled |
 
 ## Usage
 
@@ -136,15 +142,15 @@ docker compose build       # Rebuild after changes
 
 ```
 src/
-├── index.ts      # Entry point, state machine
-├── printer.ts    # WebSocket client with EventEmitter
+├── index.ts      # Entry point, monitor state machine
+├── printer.ts    # WebSocket client with job state machine
 ├── slack.ts      # Slack API integration with image upload
 ├── snapshot.ts   # Camera snapshot capture with retry logic
 ├── config.ts     # Environment variable loading and validation
 └── logger.ts     # Timestamped console logging
 ```
 
-### State Machine
+### Monitor State Machine (index.ts)
 
 ```
 OFFLINE ──(connect)──> CONNECTING ──(connected)──> IDLE
@@ -152,14 +158,72 @@ OFFLINE ──(connect)──> CONNECTING ──(connected)──> IDLE
    │                                                 │
    └──────────(disconnected)─────────────────────────┘
                                                      │
-                                            (print starts)
+                                            (job submitted)
                                                      ↓
                                                 PRINTING
                                                      │
-                                            (print complete)
+                                       (complete or cancelled)
                                                      ↓
                                                   IDLE
 ```
+
+### Job State Machine (printer.ts)
+
+Tracks print job lifecycle through WebSocket messages:
+
+```
+IDLE ──(deviceState=1 && state=1)──> SUBMITTED ──(progress > 0)──> PRINTING
+                                          │                            │
+                                          │                            │
+                                   (deviceState=0)              (progress=100)
+                                          │                            │
+                                          ↓                            ↓
+                                     CANCELLED                     COMPLETE
+                                          │                            │
+                                          └────────> IDLE <────────────┘
+```
+
+**Events emitted:**
+
+- `jobSubmitted` - Print job received, printer heating
+- `jobComplete` - Print finished successfully (progress = 100%)
+- `jobCancelled` - Print stopped before completion (deviceState = 0)
+
+## WebSocket Protocol
+
+PrintGuard communicates with the printer via WebSocket. Key details for contributors:
+
+### Heartbeat
+
+The client sends a heartbeat every 6 seconds to maintain the connection:
+
+```json
+{"ModeCode":"heart_beat","msg":"2025-01-15T10:30:00.000Z"}
+```
+
+The printer responds with `ok`.
+
+### Status Messages
+
+The printer sends partial JSON updates with various fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deviceState` | number | 0 = idle, 1 = busy |
+| `state` | number | 0 = idle, 1 = printing, 2 = complete |
+| `printProgress` | number | 0-100 percentage |
+| `nozzleTemp` | string | Current nozzle temperature |
+| `bedTemp0` | string | Current bed temperature |
+| `printLeftTime` | number | Remaining time in seconds |
+| `printJobTime` | number | Elapsed time in seconds |
+| `filename` / `printFileName` / `curPrintFile` | string | Current file being printed |
+
+### Job Detection Logic
+
+- **Job Submitted**: `deviceState=1` AND `state=1`
+- **Print Started**: `printProgress > 0` AND `printProgress < 50`
+- **Job Complete**: `printProgress = 100`
+- **Job Cancelled**: `deviceState = 0` while in SUBMITTED or PRINTING state
 
 ## Slack Bot Setup
 

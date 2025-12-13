@@ -1,5 +1,5 @@
 import { PrinterClient } from './printer';
-import { sendJobComplete, sendStartup, sendPrinterOnline, sendPrintStarted } from './slack';
+import { sendJobComplete, sendJobCancelled, sendJobSubmitted, sendStartup, sendPrinterOnline, sendPrintStarted } from './slack';
 import { config } from './config';
 import { log } from './logger';
 import { captureSnapshot, isSnapshotEnabled } from './snapshot';
@@ -35,15 +35,19 @@ class PrintMonitor {
       this.scheduleReconnect();
     });
 
-    this.printer.on('status', async (status) => {
-      if (status.printProgress !== undefined && status.printProgress > 0 && status.printProgress < 100) {
-        if (this.state !== MonitorState.PRINTING) {
-          this.state = MonitorState.PRINTING;
-          log(`State: ${this.state} (progress: ${status.printProgress}%)`);
-          const image = config.images.onPrintStarted ? await captureSnapshot() : null;
-          await sendPrintStarted(status.filename || 'Unknown file', image);
-        }
-      }
+    this.printer.on('jobSubmitted', async (info) => {
+      log(`Job submitted: ${info.filename}`);
+      this.state = MonitorState.PRINTING;
+      log(`State: ${this.state} (heating)`);
+      await sendJobSubmitted(info.filename);
+    });
+
+    this.printer.on('printStarted', async (info) => {
+      log(`Print started: ${info.filename}`);
+      this.state = MonitorState.PRINTING;
+      log(`State: ${this.state} (printing)`);
+      const image = config.images.onPrintStarted ? await captureSnapshot() : null;
+      await sendPrintStarted(info.filename, image);
     });
 
     this.printer.on('jobComplete', async (info) => {
@@ -59,8 +63,17 @@ class PrintMonitor {
       }, image);
     });
 
-    this.printer.on('heartbeat', () => {
-      log('Printer heartbeat', 'debug');
+    this.printer.on('jobCancelled', async (info) => {
+      log(`Job cancelled: ${info.filename}`);
+      this.state = MonitorState.IDLE;
+      log(`State: ${this.state}`);
+
+      const image = config.images.onJobCancelled ? await captureSnapshot() : null;
+      await sendJobCancelled({
+        filename: info.filename,
+        durationSeconds: info.durationSeconds,
+        materialUsedMm: info.materialUsedMm,
+      }, image);
     });
   }
 
