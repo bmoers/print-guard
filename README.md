@@ -212,6 +212,7 @@ The printer sends partial JSON updates with various fields:
 | `deviceState` | number | 0 = idle, 1 = busy |
 | `state` | number | 0 = idle, 1 = printing, 2 = complete |
 | `printProgress` | number | 0-100 percentage |
+| `printJobTime` | number | Print progress in seconds  |
 | `nozzleTemp` | string | Current nozzle temperature |
 | `bedTemp0` | string | Current bed temperature |
 | `printLeftTime` | number | Remaining time in seconds |
@@ -221,7 +222,7 @@ The printer sends partial JSON updates with various fields:
 ### Job Detection Logic
 
 - **Job Submitted**: `deviceState=1` AND `state=1`
-- **Print Started**: `printProgress > 0` AND `printProgress < 50`
+- **Print Started**: `printJobTime > 0`
 - **Job Complete**: `printProgress = 100`
 - **Job Cancelled**: `deviceState = 0` while in SUBMITTED or PRINTING state
 

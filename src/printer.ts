@@ -1,7 +1,7 @@
-import WebSocket from 'ws';
-import { EventEmitter } from 'events';
-import { config } from './config';
-import { log } from './logger';
+import WebSocket from "ws";
+import { EventEmitter } from "events";
+import { config } from "./config";
+import { log } from "./logger";
 
 export interface PrinterStatus {
   nozzleTemp?: number;
@@ -21,14 +21,22 @@ export interface PrinterEvents {
   disconnected: () => void;
   jobSubmitted: (info: { filename: string }) => void;
   printStarted: (info: { filename: string }) => void;
-  jobComplete: (info: { filename: string; durationSeconds: number; materialUsedMm: number }) => void;
-  jobCancelled: (info: { filename: string; durationSeconds: number; materialUsedMm: number }) => void;
+  jobComplete: (info: {
+    filename: string;
+    durationSeconds: number;
+    materialUsedMm: number;
+  }) => void;
+  jobCancelled: (info: {
+    filename: string;
+    durationSeconds: number;
+    materialUsedMm: number;
+  }) => void;
 }
 
 enum JobState {
-  IDLE = 'IDLE',
-  SUBMITTED = 'SUBMITTED',
-  PRINTING = 'PRINTING',
+  IDLE = "IDLE",
+  SUBMITTED = "SUBMITTED",
+  PRINTING = "PRINTING",
 }
 
 export class PrinterClient extends EventEmitter {
@@ -53,33 +61,33 @@ export class PrinterClient extends EventEmitter {
     try {
       this.ws = new WebSocket(config.printer.wsUrl);
 
-      this.ws.on('open', () => {
-        log('Connected to printer');
+      this.ws.on("open", () => {
+        log("Connected to printer");
         this.wasConnected = true;
         this.startHeartbeat();
-        this.emit('connected');
+        this.emit("connected");
       });
 
-      this.ws.on('message', (data: WebSocket.Data) => {
-        log(`Received message: ${data.toString()}`, 'debug');
+      this.ws.on("message", (data: WebSocket.Data) => {
+        log(`Received message: ${data.toString()}`, "debug");
         this.handleMessage(data.toString());
       });
 
-      this.ws.on('close', () => {
+      this.ws.on("close", () => {
         this.stopHeartbeat();
         if (this.wasConnected) {
-          log('Disconnected from printer');
+          log("Disconnected from printer");
           this.wasConnected = false;
         }
         this.ws = null;
-        this.emit('disconnected');
+        this.emit("disconnected");
       });
 
-      this.ws.on('error', (error: Error) => {
-        log(`WebSocket error: ${error.message}`, 'error');
+      this.ws.on("error", (error: Error) => {
+        log(`WebSocket error: ${error.message}`, "error");
       });
     } catch (error) {
-      log(`Failed to create WebSocket connection: ${error}`, 'error');
+      log(`Failed to create WebSocket connection: ${error}`, "error");
     }
   }
 
@@ -96,11 +104,11 @@ export class PrinterClient extends EventEmitter {
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         const msg = JSON.stringify({
-          ModeCode: 'heart_beat',
+          ModeCode: "heart_beat",
           msg: new Date().toISOString(),
         });
         this.ws.send(msg);
-        log('Heartbeat sent', 'debug');
+        log("Heartbeat sent", "debug");
       }
     }, 6000);
   }
@@ -121,7 +129,7 @@ export class PrinterClient extends EventEmitter {
   }
 
   private handleMessage(data: string): void {
-    if (data === 'ok') {
+    if (data === "ok") {
       return;
     }
 
@@ -130,7 +138,7 @@ export class PrinterClient extends EventEmitter {
       this.updateStatus(message);
       this.checkJobEvents();
     } catch (error) {
-      log(`Failed to parse message: ${data}`, 'debug');
+      log(`Failed to parse message: ${data}`, "debug");
     }
   }
 
@@ -173,9 +181,14 @@ export class PrinterClient extends EventEmitter {
       this.currentStatus.deviceState = message.deviceState as number;
     }
     if (message.usedMaterialLength !== undefined) {
-      this.currentStatus.usedMaterialLength = message.usedMaterialLength as number;
+      this.currentStatus.usedMaterialLength =
+        message.usedMaterialLength as number;
     }
-    if (message.historyList && Array.isArray(message.historyList) && message.historyList.length > 0) {
+    if (
+      message.historyList &&
+      Array.isArray(message.historyList) &&
+      message.historyList.length > 0
+    ) {
       const latestJob = message.historyList[0] as Record<string, unknown>;
       if (latestJob.filename) {
         this.currentStatus.filename = latestJob.filename as string;
@@ -185,7 +198,8 @@ export class PrinterClient extends EventEmitter {
 
   // Checks for job state transitions and emits events
   private checkJobEvents(): void {
-    const { deviceState, state, printProgress } = this.currentStatus;
+    const { deviceState, state, printProgress, printJobTime } =
+      this.currentStatus;
 
     // IDLE → SUBMITTED: deviceState=1 && state=1
     if (this.jobState === JobState.IDLE) {
@@ -196,12 +210,13 @@ export class PrinterClient extends EventEmitter {
       return;
     }
 
-    // SUBMITTED → PRINTING: printProgress > 0
+    // SUBMITTED → PRINTING: printJobTime > 0
     if (this.jobState === JobState.SUBMITTED) {
-      if (printProgress !== undefined && printProgress > 0 && printProgress < 50) {
+      if (printJobTime !== undefined && printJobTime > 0) {
         this.jobState = JobState.PRINTING;
         this.emitPrintStarted();
       }
+
       // SUBMITTED → CANCELLED: deviceState=0
       if (deviceState === 0) {
         this.jobState = JobState.IDLE;
@@ -235,32 +250,32 @@ export class PrinterClient extends EventEmitter {
   }
 
   private emitJobSubmitted(): void {
-    const filename = this.currentStatus.filename || 'Unknown file';
+    const filename = this.currentStatus.filename || "Unknown file";
     log(`Job submitted: ${filename}`);
-    this.emit('jobSubmitted', { filename });
+    this.emit("jobSubmitted", { filename });
   }
 
   private emitPrintStarted(): void {
-    const filename = this.currentStatus.filename || 'Unknown file';
+    const filename = this.currentStatus.filename || "Unknown file";
     log(`Print started: ${filename}`);
-    this.emit('printStarted', { filename });
+    this.emit("printStarted", { filename });
   }
 
   private emitJobComplete(): void {
-    const filename = this.currentStatus.filename || 'Unknown file';
+    const filename = this.currentStatus.filename || "Unknown file";
     const durationSeconds = this.currentStatus.printJobTime || 0;
     const materialUsedMm = this.currentStatus.usedMaterialLength || 0;
 
     log(`Job complete: ${filename} (${durationSeconds}s)`);
-    this.emit('jobComplete', { filename, durationSeconds, materialUsedMm });
+    this.emit("jobComplete", { filename, durationSeconds, materialUsedMm });
   }
 
   private emitJobCancelled(): void {
-    const filename = this.currentStatus.filename || 'Unknown file';
+    const filename = this.currentStatus.filename || "Unknown file";
     const durationSeconds = this.currentStatus.printJobTime || 0;
     const materialUsedMm = this.currentStatus.usedMaterialLength || 0;
 
     log(`Job cancelled: ${filename} (${durationSeconds}s)`);
-    this.emit('jobCancelled', { filename, durationSeconds, materialUsedMm });
+    this.emit("jobCancelled", { filename, durationSeconds, materialUsedMm });
   }
 }
