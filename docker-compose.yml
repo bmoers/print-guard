@@ -7,3 +7,5 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+    ports:
+      - "3210:3000"

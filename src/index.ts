@@ -3,6 +3,7 @@ import { sendJobComplete, sendJobCancelled, sendJobSubmitted, sendStartup, sendP
 import { config } from './config';
 import { log } from './logger';
 import { captureSnapshot, isSnapshotEnabled } from './snapshot';
+import { startWebServer } from './web';
 
 enum MonitorState {
   OFFLINE = 'OFFLINE',
@@ -15,6 +16,14 @@ class PrintMonitor {
   private printer: PrinterClient;
   private state: MonitorState = MonitorState.OFFLINE;
   private reconnectTimer: NodeJS.Timeout | null = null;
+
+  getState(): string {
+    return this.state;
+  }
+
+  getPrinter(): PrinterClient {
+    return this.printer;
+  }
 
   constructor() {
     this.printer = new PrinterClient();
@@ -121,6 +130,14 @@ class PrintMonitor {
       log('Snapshots disabled (PRINTER_SNAPSHOT_URL not set)');
     }
     await sendStartup();
+
+    if (config.web.enabled) {
+      startWebServer({
+        printer: this.printer,
+        getMonitorState: () => this.state,
+      });
+    }
+
     this.connect();
   }
 }

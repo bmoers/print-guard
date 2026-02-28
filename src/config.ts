@@ -49,6 +49,10 @@ export const config = {
     onJobComplete: boolEnv('IMAGE_ON_JOB_COMPLETE', true),
     onJobCancelled: boolEnv('IMAGE_ON_JOB_CANCELLED', true),
   },
+  web: {
+    port: parseInt(optionalEnv('WEB_PORT', '3000'), 10),
+    enabled: boolEnv('WEB_ENABLED', true),
+  },
 } as const;
 
 export type Config = typeof config;

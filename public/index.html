@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrintGuard — Mission Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+    :root {
+      --bg-deep: #060a10;
+      --bg-panel: #0c1018;
+      --bg-card: #111822;
+      --bg-card-hover: #161e2a;
+      --border: #1a2433;
+      --border-bright: #243044;
+      --text-primary: #e4eaf4;
+      --text-secondary: #7a8ba8;
+      --text-dim: #4a5a72;
+      --accent-blue: #00b4ff;
+      --accent-blue-glow: rgba(0, 180, 255, 0.15);
+      --accent-amber: #ffaa2a;
+      --accent-amber-glow: rgba(255, 170, 42, 0.12);
+      --accent-green: #22dd88;
+      --accent-green-glow: rgba(34, 221, 136, 0.12);
+      --accent-red: #ff4466;
+      --accent-red-glow: rgba(255, 68, 102, 0.1);
+      --font-data: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+      --font-ui: 'Outfit', system-ui, sans-serif;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Subtle grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0, 180, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 180, 255, 0.02) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Noise texture overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 28px 48px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-blue), #0066cc);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px var(--accent-blue-glow);
+    }
+
+    .logo-mark svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
+    }
+
+    .header-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .header-title span {
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    .conn-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-family: var(--font-data);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      transition: all 0.4s ease;
+    }
+
+    .conn-badge.online {
+      border-color: rgba(34, 221, 136, 0.25);
+      background: var(--accent-green-glow);
+      color: var(--accent-green);
+    }
+
+    .conn-badge.offline {
+      border-color: rgba(255, 68, 102, 0.25);
+      background: var(--accent-red-glow);
+      color: var(--accent-red);
+    }
+
+    .conn-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      position: relative;
+    }
+
+    .conn-badge.online .conn-dot::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.35;
+      animation: pulse-ring 2s ease-out infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(1); opacity: 0.35; }
+      70% { transform: scale(2.2); opacity: 0; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+
+    /* ── Main Layout ── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      grid-template-rows: auto auto;
+      gap: 20px;
+    }
+
+    /* ── Camera Feed ── */
+    .camera-panel {
+      grid-row: 1 / 3;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .camera-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-label {
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .camera-live-tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-data);
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent-red);
+    }
+
+    .camera-live-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-red);
+      border-radius: 50%;
+      animation: blink 1.4s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.25; }
+    }
+
+    .camera-viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .camera-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .camera-viewport.no-feed {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .no-feed-msg {
+      text-align: center;
+      color: var(--text-dim);
+    }
+
+    .no-feed-msg svg {
+      width: 48px;
+      height: 48px;
+      stroke: var(--text-dim);
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+
+    .no-feed-msg p {
+      font-size: 0.8rem;
+      font-family: var(--font-data);
+    }
+
+    /* Scanline overlay on camera */
+    .camera-viewport::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+    }
+
+    /* Camera HUD corners */
+    .hud-corner {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-color: var(--accent-blue);
+      border-style: solid;
+      border-width: 0;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .hud-corner.tl { top: 12px; left: 12px; border-top-width: 2px; border-left-width: 2px; }
+    .hud-corner.tr { top: 12px; right: 12px; border-top-width: 2px; border-right-width: 2px; }
+    .hud-corner.bl { bottom: 12px; left: 12px; border-bottom-width: 2px; border-left-width: 2px; }
+    .hud-corner.br { bottom: 12px; right: 12px; border-bottom-width: 2px; border-right-width: 2px; }
+
+    /* ── Cards (right column) ── */
+    .card {
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-body {
+      padding: 20px 18px;
+    }
+
+    /* ── Temperature Gauges ── */
+    .temp-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .gauge-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .gauge-svg {
+      width: 130px;
+      height: 130px;
+    }
+
+    .gauge-bg {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 6;
+    }
+
+    .gauge-fill {
+      fill: none;
+      stroke-width: 6;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1s ease, stroke 0.5s ease;
+    }
+
+    .gauge-fill.nozzle { stroke: var(--accent-amber); }
+    .gauge-fill.bed { stroke: var(--accent-blue); }
+
+    .gauge-temp {
+      font-family: var(--font-data);
+      font-size: 1.5rem;
+      font-weight: 500;
+      fill: var(--text-primary);
+    }
+
+    .gauge-unit {
+      font-family: var(--font-data);
+      font-size: 0.6rem;
+      fill: var(--text-dim);
+    }
+
+    .gauge-label {
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* ── Print Job Info ── */
+    .job-section {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .job-filename {
+      font-family: var(--font-data);
+      font-size: 0.82rem;
+      color: var(--text-primary);
+      padding: 10px 14px;
+      background: var(--bg-card);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .job-filename.idle {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* Progress ring */
+    .progress-area {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .progress-ring-wrap {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      flex-shrink: 0;
+    }
+
+    .progress-ring-svg {
+      width: 80px;
+      height: 80px;
+      transform: rotate(-90deg);
+    }
+
+    .progress-ring-bg {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 5;
+    }
+
+    .progress-ring-fill {
+      fill: none;
+      stroke: var(--accent-blue);
+      stroke-width: 5;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1.2s ease;
+    }
+
+    .progress-percent {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-data);
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .progress-percent span {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .progress-details {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .detail-label {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+    }
+
+    .detail-value {
+      font-family: var(--font-data);
+      font-size: 0.78rem;
+      font-weight: 400;
+      color: var(--text-primary);
+    }
+
+    .detail-value.highlight {
+      color: var(--accent-amber);
+    }
+
+    /* ── Status Bar (bottom) ── */
+    .status-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .stat-chip {
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .stat-chip-label {
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .stat-chip-value {
+      font-family: var(--font-data);
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: var(--text-primary);
+    }
+
+    .stat-chip-value.state-printing {
+      color: var(--accent-amber);
+    }
+
+    .stat-chip-value.state-idle {
+      color: var(--accent-green);
+    }
+
+    .stat-chip-value.state-offline {
+      color: var(--accent-red);
+    }
+
+    /* ── Fade-in animation ── */
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .camera-panel { animation: fade-up 0.5s ease both 0.05s; }
+    .card:nth-child(2) { animation: fade-up 0.5s ease both 0.15s; }
+    .card:nth-child(3) { animation: fade-up 0.5s ease both 0.25s; }
+    .status-row { animation: fade-up 0.5s ease both 0.35s; }
+
+    /* ── Responsive ── */
+    @media (max-width: 860px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      .camera-panel {
+        grid-row: auto;
+      }
+      .status-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .app { padding: 16px 14px 36px; }
+      .status-row {
+        grid-template-columns: 1fr;
+      }
+      .temp-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .gauge-svg { width: 105px; height: 105px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-mark">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="header-title">PrintGuard <span>/ Dashboard</span></div>
+      </div>
+      <div class="conn-badge offline" id="connBadge">
+        <div class="conn-dot"></div>
+        <span id="connLabel">Connecting</span>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid">
+      <!-- Camera Feed -->
+      <div class="camera-panel">
+        <div class="camera-header">
+          <div class="panel-label">Camera Feed</div>
+          <div class="camera-live-tag" id="liveTag" style="display:none;">
+            <div class="camera-live-dot"></div>
+            Live
+          </div>
+        </div>
+        <div class="camera-viewport" id="cameraViewport">
+          <img id="cameraImg" alt="Printer camera feed" style="display:none;">
+          <div class="hud-corner tl"></div>
+          <div class="hud-corner tr"></div>
+          <div class="hud-corner bl"></div>
+          <div class="hud-corner br"></div>
+          <div class="no-feed-msg" id="noFeed">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+            <p>No camera feed</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Temperature Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="panel-label">Temperatures</div>
+        </div>
+        <div class="card-body">
+          <div class="temp-grid">
+            <!-- Nozzle Gauge -->
+            <div class="gauge-container">
+              <svg class="gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-bg" cx="60" cy="60" r="50" stroke-dasharray="235.6" stroke-dashoffset="59" transform="rotate(135 60 60)"/>
+                <circle class="gauge-fill nozzle" id="nozzleArc" cx="60" cy="60" r="50" stroke-dasharray="235.6" stroke-dashoffset="176.7" transform="rotate(135 60 60)"/>
+                <text class="gauge-temp" id="nozzleTemp" x="60" y="58" text-anchor="middle" dominant-baseline="middle">--</text>
+                <text class="gauge-unit" x="60" y="74" text-anchor="middle">°C</text>
+              </svg>
+              <div class="gauge-label">Nozzle</div>
+            </div>
+            <!-- Bed Gauge -->
+            <div class="gauge-container">
+              <svg class="gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-bg" cx="60" cy="60" r="50" stroke-dasharray="235.6" stroke-dashoffset="59" transform="rotate(135 60 60)"/>
+                <circle class="gauge-fill bed" id="bedArc" cx="60" cy="60" r="50" stroke-dasharray="235.6" stroke-dashoffset="176.7" transform="rotate(135 60 60)"/>
+                <text class="gauge-temp" id="bedTemp" x="60" y="58" text-anchor="middle" dominant-baseline="middle">--</text>
+                <text class="gauge-unit" x="60" y="74" text-anchor="middle">°C</text>
+              </svg>
+              <div class="gauge-label">Bed</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Print Job Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="panel-label">Print Job</div>
+          <div class="panel-label" id="jobStateLabel" style="color: var(--text-dim);">Idle</div>
+        </div>
+        <div class="card-body">
+          <div class="job-section">
+            <div class="job-filename idle" id="jobFilename">No active print</div>
+
+            <div class="progress-area">
+              <div class="progress-ring-wrap">
+                <svg class="progress-ring-svg" viewBox="0 0 80 80">
+                  <circle class="progress-ring-bg" cx="40" cy="40" r="34" />
+                  <circle class="progress-ring-fill" id="progressArc" cx="40" cy="40" r="34"
+                    stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+                </svg>
+                <div class="progress-percent">
+                  <span id="progressText">--%</span>
+                </div>
+              </div>
+              <div class="progress-details">
+                <div class="detail-row">
+                  <span class="detail-label">Elapsed</span>
+                  <span class="detail-value" id="elapsedTime">--:--</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Remaining</span>
+                  <span class="detail-value highlight" id="remainingTime">--:--</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Material</span>
+                  <span class="detail-value" id="materialUsed">-- m</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Status Row -->
+      <div class="status-row">
+        <div class="stat-chip">
+          <div class="stat-chip-label">Monitor State</div>
+          <div class="stat-chip-value" id="monitorState">--</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-label">Printer State</div>
+          <div class="stat-chip-value" id="printerState">--</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-label">Position</div>
+          <div class="stat-chip-value" id="curPosition">--</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-label">Last Update</div>
+          <div class="stat-chip-value" id="lastUpdate">--</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── DOM References ──
+    const $ = (id) => document.getElementById(id);
+
+    const connBadge     = $('connBadge');
+    const connLabel     = $('connLabel');
+    const nozzleTemp    = $('nozzleTemp');
+    const bedTemp       = $('bedTemp');
+    const nozzleArc     = $('nozzleArc');
+    const bedArc        = $('bedArc');
+    const jobFilename   = $('jobFilename');
+    const jobStateLabel = $('jobStateLabel');
+    const progressArc   = $('progressArc');
+    const progressText  = $('progressText');
+    const elapsedTime   = $('elapsedTime');
+    const remainingTime = $('remainingTime');
+    const materialUsed  = $('materialUsed');
+    const monitorState  = $('monitorState');
+    const printerState  = $('printerState');
+    const curPosition   = $('curPosition');
+    const lastUpdate    = $('lastUpdate');
+    const cameraImg     = $('cameraImg');
+    const noFeed        = $('noFeed');
+    const liveTag       = $('liveTag');
+    const cameraViewport= $('cameraViewport');
+
+    // ── Gauge helpers ──
+    // Arc covers 270° of a circle with radius 50 → circumference portion
+    const GAUGE_CIRCUM = 2 * Math.PI * 50; // ~314.16
+    const GAUGE_ARC = GAUGE_CIRCUM * (270 / 360); // ~235.62 (visible arc)
+    const GAUGE_GAP = GAUGE_CIRCUM - GAUGE_ARC; // hidden portion
+
+    function setGauge(el, temp, maxTemp) {
+      const ratio = Math.min(Math.max((temp || 0) / maxTemp, 0), 1);
+      const offset = GAUGE_ARC - (GAUGE_ARC * ratio) + GAUGE_GAP;
+      el.style.strokeDasharray = GAUGE_CIRCUM;
+      el.style.strokeDashoffset = offset;
+    }
+
+    // Progress ring: full circle with radius 34
+    const PROG_CIRCUM = 2 * Math.PI * 34; // ~213.63
+
+    function setProgress(percent) {
+      const p = Math.min(Math.max(percent || 0, 0), 100);
+      const offset = PROG_CIRCUM - (PROG_CIRCUM * p / 100);
+      progressArc.style.strokeDasharray = PROG_CIRCUM;
+      progressArc.style.strokeDashoffset = offset;
+      progressText.textContent = p > 0 ? `${Math.round(p)}%` : '--%';
+    }
+
+    // ── Time formatting ──
+    function formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return '--:--';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+      return `${m}m ${String(s).padStart(2, '0')}s`;
+    }
+
+    function formatTime(ts) {
+      return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // ── State formatting ──
+    const PRINTER_STATES = { 0: 'Idle', 1: 'Printing', 2: 'Complete' };
+    const DEVICE_STATES = { 0: 'Idle', 1: 'Busy' };
+
+    function stateClass(monState) {
+      const s = (monState || '').toUpperCase();
+      if (s === 'PRINTING') return 'state-printing';
+      if (s === 'IDLE') return 'state-idle';
+      if (s === 'OFFLINE' || s === 'CONNECTING') return 'state-offline';
+      return '';
+    }
+
+    // ── Camera Feed ──
+    let snapshotEnabled = false;
+    let cameraTimer = null;
+
+    function refreshCamera() {
+      if (!snapshotEnabled) return;
+      const img = new Image();
+      img.onload = () => {
+        cameraImg.src = img.src;
+        cameraImg.style.display = 'block';
+        noFeed.style.display = 'none';
+        liveTag.style.display = 'flex';
+      };
+      img.onerror = () => {
+        cameraImg.style.display = 'none';
+        noFeed.style.display = '';
+        liveTag.style.display = 'none';
+      };
+      img.src = '/api/snapshot?t=' + Date.now();
+    }
+
+    function startCameraRefresh() {
+      if (cameraTimer) return;
+      refreshCamera();
+      cameraTimer = setInterval(refreshCamera, 3000);
+    }
+
+    function stopCameraRefresh() {
+      if (cameraTimer) {
+        clearInterval(cameraTimer);
+        cameraTimer = null;
+      }
+    }
+
+    // ── SSE Connection ──
+    function connectSSE() {
+      const evtSource = new EventSource('/api/status/stream');
+
+      evtSource.onmessage = (event) => {
+        try {
+          const d = JSON.parse(event.data);
+          updateUI(d);
+        } catch (e) {
+          console.error('Failed to parse SSE data:', e);
+        }
+      };
+
+      evtSource.onerror = () => {
+        connBadge.className = 'conn-badge offline';
+        connLabel.textContent = 'Disconnected';
+        // EventSource auto-reconnects
+      };
+    }
+
+    function updateUI(d) {
+      // Connection status
+      if (d.connected) {
+        connBadge.className = 'conn-badge online';
+        connLabel.textContent = 'Online';
+      } else {
+        connBadge.className = 'conn-badge offline';
+        connLabel.textContent = d.monitorState === 'CONNECTING' ? 'Connecting' : 'Offline';
+      }
+
+      // Temperatures
+      const nt = d.nozzleTemp != null ? Math.round(d.nozzleTemp) : null;
+      const bt = d.bedTemp != null ? Math.round(d.bedTemp) : null;
+      nozzleTemp.textContent = nt != null ? nt : '--';
+      bedTemp.textContent = bt != null ? bt : '--';
+      setGauge(nozzleArc, nt, 280);
+      setGauge(bedArc, bt, 110);
+
+      // Print job
+      const isPrinting = d.monitorState === 'PRINTING';
+      const hasFile = d.filename && d.filename.length > 0;
+
+      if (hasFile) {
+        // Strip .gcode extension and path for cleaner display
+        let name = d.filename;
+        name = name.replace(/^.*[\\/]/, ''); // strip path
+        name = name.replace(/\.gcode$/i, '');
+        jobFilename.textContent = name;
+        jobFilename.classList.remove('idle');
+      } else {
+        jobFilename.textContent = 'No active print';
+        jobFilename.classList.add('idle');
+      }
+
+      if (isPrinting) {
+        jobStateLabel.textContent = 'Printing';
+        jobStateLabel.style.color = 'var(--accent-amber)';
+      } else {
+        jobStateLabel.textContent = 'Idle';
+        jobStateLabel.style.color = 'var(--text-dim)';
+      }
+
+      // Progress
+      setProgress(d.printProgress);
+
+      // Times
+      elapsedTime.textContent = formatDuration(d.printJobTime);
+      remainingTime.textContent = formatDuration(d.printLeftTime);
+
+      // Material
+      if (d.usedMaterialLength != null && d.usedMaterialLength > 0) {
+        const meters = (d.usedMaterialLength / 1000).toFixed(2);
+        materialUsed.textContent = `${meters} m`;
+      } else {
+        materialUsed.textContent = '-- m';
+      }
+
+      // Bottom stats
+      monitorState.textContent = d.monitorState || '--';
+      monitorState.className = 'stat-chip-value ' + stateClass(d.monitorState);
+
+      const ps = d.state != null ? (PRINTER_STATES[d.state] || `State ${d.state}`) : '--';
+      const ds = d.deviceState != null ? (DEVICE_STATES[d.deviceState] || `Device ${d.deviceState}`) : '';
+      printerState.textContent = ds ? `${ps} / ${ds}` : ps;
+
+      curPosition.textContent = d.curPosition || '--';
+
+      if (d.timestamp) {
+        lastUpdate.textContent = formatTime(d.timestamp);
+      }
+
+      // Camera
+      if (d.snapshotEnabled && !snapshotEnabled) {
+        snapshotEnabled = true;
+        startCameraRefresh();
+      } else if (!d.snapshotEnabled && snapshotEnabled) {
+        snapshotEnabled = false;
+        stopCameraRefresh();
+        cameraImg.style.display = 'none';
+        noFeed.style.display = '';
+        liveTag.style.display = 'none';
+      }
+    }
+
+    // ── Boot ──
+    connectSSE();
+  </script>
+</body>
+</html>
