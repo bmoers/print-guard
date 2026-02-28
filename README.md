@@ -3,12 +3,18 @@
 [![CI](https://github.com/bmoers/print-guard/actions/workflows/main.yml/badge.svg)](https://github.com/bmoers/print-guard/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Node.js/TypeScript application that monitors a Creality Ender V3 3D printer via WebSocket and sends Slack notifications with optional camera snapshots when print jobs start and complete.
+A Node.js/TypeScript application that monitors a Creality Ender V3 3D printer via WebSocket, provides a real-time web dashboard, and sends Slack notifications with optional camera snapshots when print jobs start and complete.
+
+![PrintGuard Dashboard](docs/ui.png)
 
 ## Features
 
+- **Web Dashboard** — Real-time browser UI with live camera feed, temperature gauges, and print progress
+- **Live Camera** — MJPEG stream support for smooth video, with snapshot polling fallback
 - Real-time printer monitoring via WebSocket
-- Slack notifications for:
+- **Slack Notifications** — Rich alerts with camera snapshots, duration, and material usage
+
+- [Slack notifications](docs/slack.jpg) for:
   - Monitor startup
   - Printer online/offline status
   - Print job submitted (heating phase)
@@ -26,7 +32,7 @@ A Node.js/TypeScript application that monitors a Creality Ender V3 3D printer vi
 - Node.js 18+ (or Docker)
 - Creality Ender V3 printer with network connectivity
 - Slack Bot Token with `chat:write` and `files:write` permissions
-- (Optional) Camera with HTTP snapshot endpoint
+- (Optional) Camera with HTTP snapshot or MJPEG stream endpoint
 
 ## Quick Start with Docker
 
@@ -53,6 +59,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "3000:3000"  # Web dashboard
 ```
 
 ```bash
@@ -77,42 +85,45 @@ cp .env.example .env
 
 ### Required Settings
 
-| Variable | Description |
-|----------|-------------|
-| `SLACK_BOT_TOKEN` | Slack Bot OAuth token (starts with `xoxb-`) |
+| Variable           | Description                                          |
+| ------------------ | ---------------------------------------------------- |
+| `SLACK_BOT_TOKEN`  | Slack Bot OAuth token (starts with `xoxb-`)          |
 | `SLACK_CHANNEL_ID` | Slack channel ID for notifications (starts with `C`) |
 
 ### Optional Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PRINTER_WS_URL` | `ws://192.168.1.66:9999/` | Printer WebSocket URL |
-| `OFFLINE_POLL_INTERVAL` | `300000` (5 min) | Reconnect interval when offline (ms) |
-| `PRINTER_SNAPSHOT_URL` | - | Camera snapshot URL (disabled if empty) |
-| `SNAPSHOT_DELAY_MS` | `3000` | Delay before capturing snapshot (ms) |
+| Variable                | Default                   | Description                                                 |
+| ----------------------- | ------------------------- | ----------------------------------------------------------- |
+| `PRINTER_WS_URL`        | `ws://192.168.1.66:9999/` | Printer WebSocket URL                                       |
+| `OFFLINE_POLL_INTERVAL` | `300000` (5 min)          | Reconnect interval when offline (ms)                        |
+| `PRINTER_STREAM_URL`    | -                         | MJPEG stream URL for live dashboard video                   |
+| `PRINTER_SNAPSHOT_URL`  | -                         | Camera snapshot URL for Slack images and dashboard fallback |
+| `SNAPSHOT_DELAY_MS`     | `3000`                    | Delay before capturing snapshot (ms)                        |
+| `WEB_ENABLED`           | `true`                    | Enable/disable the web dashboard                            |
+| `WEB_PORT`              | `3000`                    | Port for the web dashboard                                  |
 
 ### Notification Toggles
 
 Control which notifications are sent (all default to `true`):
 
-| Variable | Description |
-|----------|-------------|
-| `NOTIFY_STARTUP` | Send message when monitor starts |
-| `NOTIFY_PRINTER_ONLINE` | Send message when printer connects |
-| `NOTIFY_JOB_SUBMITTED` | Send message when print job is received (heating) |
-| `NOTIFY_PRINT_STARTED` | Send message when print job begins |
-| `NOTIFY_JOB_COMPLETE` | Send message when print job finishes |
-| `NOTIFY_JOB_CANCELLED` | Send message when print job is cancelled |
+| Variable                | Description                                       |
+| ----------------------- | ------------------------------------------------- |
+| `NOTIFY_STARTUP`        | Send message when monitor starts                  |
+| `NOTIFY_PRINTER_ONLINE` | Send message when printer connects                |
+| `NOTIFY_JOB_SUBMITTED`  | Send message when print job is received (heating) |
+| `NOTIFY_PRINT_STARTED`  | Send message when print job begins                |
+| `NOTIFY_JOB_COMPLETE`   | Send message when print job finishes              |
+| `NOTIFY_JOB_CANCELLED`  | Send message when print job is cancelled          |
 
 ### Image Toggles
 
 Control camera snapshots in notifications (requires `PRINTER_SNAPSHOT_URL`):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IMAGE_ON_PRINT_STARTED` | `true` | Attach snapshot when print starts |
-| `IMAGE_ON_JOB_COMPLETE` | `true` | Attach snapshot when print completes |
-| `IMAGE_ON_JOB_CANCELLED` | `true` | Attach snapshot when print is cancelled |
+| Variable                 | Default | Description                             |
+| ------------------------ | ------- | --------------------------------------- |
+| `IMAGE_ON_PRINT_STARTED` | `true`  | Attach snapshot when print starts       |
+| `IMAGE_ON_JOB_COMPLETE`  | `true`  | Attach snapshot when print completes    |
+| `IMAGE_ON_JOB_CANCELLED` | `true`  | Attach snapshot when print is cancelled |
 
 ## Usage
 
@@ -146,8 +157,11 @@ src/
 ├── printer.ts    # WebSocket client with job state machine
 ├── slack.ts      # Slack API integration with image upload
 ├── snapshot.ts   # Camera snapshot capture with retry logic
+├── web.ts        # Express web server (SSE, stream/snapshot proxy)
 ├── config.ts     # Environment variable loading and validation
 └── logger.ts     # Timestamped console logging
+public/
+└── index.html    # Web dashboard (self-contained HTML/CSS/JS)
 ```
 
 ### Monitor State Machine (index.ts)
@@ -207,17 +221,17 @@ The printer responds with `ok`.
 
 The printer sends partial JSON updates with various fields:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `deviceState` | number | 0 = idle, 1 = busy |
-| `state` | number | 0 = idle, 1 = printing, 2 = complete |
-| `printProgress` | number | 0-100 percentage |
-| `printJobTime` | number | Print progress in seconds  |
-| `nozzleTemp` | string | Current nozzle temperature |
-| `bedTemp0` | string | Current bed temperature |
-| `printLeftTime` | number | Remaining time in seconds |
-| `printJobTime` | number | Elapsed time in seconds |
-| `filename` / `printFileName` / `curPrintFile` | string | Current file being printed |
+| Field                                         | Type   | Description                          |
+| --------------------------------------------- | ------ | ------------------------------------ |
+| `deviceState`                                 | number | 0 = idle, 1 = busy                   |
+| `state`                                       | number | 0 = idle, 1 = printing, 2 = complete |
+| `printProgress`                               | number | 0-100 percentage                     |
+| `printJobTime`                                | number | Print progress in seconds            |
+| `nozzleTemp`                                  | string | Current nozzle temperature           |
+| `bedTemp0`                                    | string | Current bed temperature              |
+| `printLeftTime`                               | number | Remaining time in seconds            |
+| `printJobTime`                                | number | Elapsed time in seconds              |
+| `filename` / `printFileName` / `curPrintFile` | string | Current file being printed           |
 
 ### Job Detection Logic
 
@@ -239,13 +253,13 @@ The printer sends partial JSON updates with various fields:
 
 ## Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Run with ts-node (development) |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm start` | Run compiled JavaScript (production) |
-| `npm run lint` | Run ESLint |
-| `npm run typecheck` | Run TypeScript type checker |
+| Command             | Description                          |
+| ------------------- | ------------------------------------ |
+| `npm run dev`       | Run with ts-node (development)       |
+| `npm run build`     | Compile TypeScript to `dist/`        |
+| `npm start`         | Run compiled JavaScript (production) |
+| `npm run lint`      | Run ESLint                           |
+| `npm run typecheck` | Run TypeScript type checker          |
 
 ## License
 
