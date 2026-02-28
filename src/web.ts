@@ -1,4 +1,6 @@
 import express from 'express';
+import http from 'http';
+import https from 'https';
 import path from 'path';
 import { config } from './config';
 import { log } from './logger';
@@ -31,7 +33,7 @@ export function startWebServer(deps: WebServerDeps): void {
         ...status,
         monitorState: getMonitorState(),
         connected: printer.isConnected(),
-        snapshotEnabled: config.printer.snapshotUrl !== null,
+        cameraMode: config.printer.streamUrl ? 'stream' : config.printer.snapshotUrl ? 'snapshot' : null,
         timestamp: Date.now(),
       };
       res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -75,6 +77,49 @@ export function startWebServer(deps: WebServerDeps): void {
     }
   });
 
+  // MJPEG stream proxy — pipes the camera stream to avoid CORS
+  app.get('/api/stream', (req, res) => {
+    if (!config.printer.streamUrl) {
+      res.status(404).json({ error: 'Stream URL not configured' });
+      return;
+    }
+
+    const streamUrl = new URL(config.printer.streamUrl);
+    const transport = streamUrl.protocol === 'https:' ? https : http;
+
+    const proxyReq = transport.get(config.printer.streamUrl, (proxyRes) => {
+      if (!proxyRes.statusCode || proxyRes.statusCode >= 400) {
+        res.status(502).json({ error: 'Failed to connect to camera stream' });
+        proxyRes.destroy();
+        return;
+      }
+
+      // Forward content-type (multipart/x-mixed-replace) and pipe the stream
+      res.writeHead(proxyRes.statusCode, {
+        'Content-Type': proxyRes.headers['content-type'] || 'multipart/x-mixed-replace',
+        'Cache-Control': 'no-cache, no-store',
+        Connection: 'keep-alive',
+      });
+
+      proxyRes.pipe(res);
+
+      // Clean up when client disconnects
+      req.on('close', () => {
+        proxyRes.destroy();
+      });
+    });
+
+    proxyReq.on('error', () => {
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Camera stream unreachable' });
+      }
+    });
+
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
+  });
+
   // JSON status endpoint (for one-off requests)
   app.get('/api/status', (_req, res) => {
     const status = printer.getStatus();
@@ -82,7 +127,7 @@ export function startWebServer(deps: WebServerDeps): void {
       ...status,
       monitorState: getMonitorState(),
       connected: printer.isConnected(),
-      snapshotEnabled: config.printer.snapshotUrl !== null,
+      cameraMode: config.printer.streamUrl ? 'stream' : config.printer.snapshotUrl ? 'snapshot' : null,
       timestamp: Date.now(),
     });
   });

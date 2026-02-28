@@ -29,6 +29,7 @@ export const config = {
   printer: {
     wsUrl: requireEnv('PRINTER_WS_URL'),
     snapshotUrl: process.env.PRINTER_SNAPSHOT_URL || null,
+    streamUrl: process.env.PRINTER_STREAM_URL || null,
   },
   snapshot: {
     delayMs: parseInt(optionalEnv('SNAPSHOT_DELAY_MS', '3000'), 10),

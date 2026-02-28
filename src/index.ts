@@ -123,11 +123,15 @@ class PrintMonitor {
     log('Starting print monitor...');
     log(`Printer URL: ${config.printer.wsUrl}`);
     log(`Offline poll interval: ${config.polling.offlineInterval / 1000}s`);
+    if (config.printer.streamUrl) {
+      log(`Camera stream: ${config.printer.streamUrl}`);
+    }
     if (isSnapshotEnabled()) {
       log(`Snapshots enabled: ${config.printer.snapshotUrl}`);
       log(`Snapshot delay: ${config.snapshot.delayMs}ms`);
-    } else {
-      log('Snapshots disabled (PRINTER_SNAPSHOT_URL not set)');
+    }
+    if (!config.printer.streamUrl && !isSnapshotEnabled()) {
+      log('Camera disabled (PRINTER_STREAM_URL and PRINTER_SNAPSHOT_URL not set)');
     }
     await sendStartup();
 

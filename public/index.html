@@ -781,36 +781,71 @@
     }
 
     // ── Camera Feed ──
-    let snapshotEnabled = false;
-    let cameraTimer = null;
+    // Supports two modes:
+    //   'stream'   → MJPEG stream via /api/stream (single long-lived connection)
+    //   'snapshot'  → polling stills via /api/snapshot every 3s
+    let activeCameraMode = null; // 'stream' | 'snapshot' | null
+    let snapshotTimer = null;
 
-    function refreshCamera() {
-      if (!snapshotEnabled) return;
+    function showFeed() {
+      cameraImg.style.display = 'block';
+      noFeed.style.display = 'none';
+      liveTag.style.display = 'flex';
+    }
+
+    function hideFeed() {
+      cameraImg.style.display = 'none';
+      cameraImg.src = '';
+      noFeed.style.display = '';
+      liveTag.style.display = 'none';
+    }
+
+    function startStream() {
+      // MJPEG: just point <img> at the proxy — browser handles the rest
+      cameraImg.src = '/api/stream';
+      cameraImg.onload = showFeed;
+      cameraImg.onerror = () => {
+        hideFeed();
+        // Retry after 5s in case the stream drops
+        setTimeout(() => {
+          if (activeCameraMode === 'stream') startStream();
+        }, 5000);
+      };
+    }
+
+    function startSnapshotPolling() {
+      if (snapshotTimer) return;
+      refreshSnapshot();
+      snapshotTimer = setInterval(refreshSnapshot, 3000);
+    }
+
+    function refreshSnapshot() {
       const img = new Image();
       img.onload = () => {
         cameraImg.src = img.src;
-        cameraImg.style.display = 'block';
-        noFeed.style.display = 'none';
-        liveTag.style.display = 'flex';
+        showFeed();
       };
-      img.onerror = () => {
-        cameraImg.style.display = 'none';
-        noFeed.style.display = '';
-        liveTag.style.display = 'none';
-      };
+      img.onerror = hideFeed;
       img.src = '/api/snapshot?t=' + Date.now();
     }
 
-    function startCameraRefresh() {
-      if (cameraTimer) return;
-      refreshCamera();
-      cameraTimer = setInterval(refreshCamera, 3000);
+    function stopCamera() {
+      if (snapshotTimer) {
+        clearInterval(snapshotTimer);
+        snapshotTimer = null;
+      }
+      hideFeed();
+      activeCameraMode = null;
     }
 
-    function stopCameraRefresh() {
-      if (cameraTimer) {
-        clearInterval(cameraTimer);
-        cameraTimer = null;
+    function setCamera(mode) {
+      if (mode === activeCameraMode) return;
+      stopCamera();
+      activeCameraMode = mode;
+      if (mode === 'stream') {
+        startStream();
+      } else if (mode === 'snapshot') {
+        startSnapshotPolling();
       }
     }
 
@@ -905,17 +940,8 @@
         lastUpdate.textContent = formatTime(d.timestamp);
       }
 
-      // Camera
-      if (d.snapshotEnabled && !snapshotEnabled) {
-        snapshotEnabled = true;
-        startCameraRefresh();
-      } else if (!d.snapshotEnabled && snapshotEnabled) {
-        snapshotEnabled = false;
-        stopCameraRefresh();
-        cameraImg.style.display = 'none';
-        noFeed.style.display = '';
-        liveTag.style.display = 'none';
-      }
+      // Camera — server tells us which mode is available
+      setCamera(d.cameraMode);
     }
 
     // ── Boot ──

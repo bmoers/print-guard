@@ -1,0 +1,12 @@
+services:
+  print-guard:
+    build:
+      dockerfile: Dockerfile
+    container_name: print-guard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "3210:3000"
