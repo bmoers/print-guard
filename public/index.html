@@ -940,8 +940,8 @@
         lastUpdate.textContent = formatTime(d.timestamp);
       }
 
-      // Camera — server tells us which mode is available
-      setCamera(d.cameraMode);
+      // Camera — only load feed when printer is online
+      setCamera(d.connected ? d.cameraMode : null);
     }
 
     // ── Boot ──

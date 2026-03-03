@@ -33,7 +33,9 @@ export function startWebServer(deps: WebServerDeps): void {
         ...status,
         monitorState: getMonitorState(),
         connected: printer.isConnected(),
-        cameraMode: config.printer.streamUrl ? 'stream' : config.printer.snapshotUrl ? 'snapshot' : null,
+        cameraMode: printer.isConnected()
+          ? config.printer.streamUrl ? 'stream' : config.printer.snapshotUrl ? 'snapshot' : null
+          : null,
         timestamp: Date.now(),
       };
       res.write(`data: ${JSON.stringify(data)}\n\n`);
